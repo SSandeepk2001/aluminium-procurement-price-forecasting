@@ -1,57 +1,43 @@
-import streamlit as st
+from fastapi import FastAPI
+from pydantic import BaseModel
 import pandas as pd
-import pickle
-import matplotlib.pyplot as plt
+import joblib
 
-# Load trained models
-sarima_model = pickle.load(open("sarima_model.pkl", "rb"))
-prophet_model = pickle.load(open("prophet_model.pkl", "rb"))
+# Load trained model
+model = joblib.load("model/price_model.pkl")
 
-st.title("Aluminium Price Forecasting")
+# Initialize FastAPI
+app = FastAPI(
+    title="Aluminium Price Forecasting API",
+    description="REST API for predicting aluminium prices using ML model",
+    version="1.0"
+)
 
-# Date Input
-date_input = st.date_input("Select a future date")
+# Input data schema
+class InputData(BaseModel):
+    Open: float
+    High: float
+    Low: float
+    Volume: float
 
-if st.button("Predict Price"):
-    date = pd.to_datetime(date_input)
-    
-    # SARIMA Prediction
-    forecast = sarima_model.get_forecast(steps=30)
-    forecast_index = pd.date_range(start=pd.Timestamp.today(), periods=30, freq="D")
-    sarima_forecast_df = pd.DataFrame({"Forecasted Price": forecast.predicted_mean}, index=forecast_index)
 
-    if date in sarima_forecast_df.index:
-        sarima_predicted_price = sarima_forecast_df.loc[date, "Forecasted Price"]
-        sarima_display_price = f"${sarima_predicted_price:.2f}"
-    else:
-        sarima_display_price = "N/A"
+# Home route
+@app.get("/")
+def home():
+    return {"message": "Aluminium Price Forecast API is running successfully"}
 
-    # Prophet Prediction
-    future = prophet_model.make_future_dataframe(periods=30)
-    forecast_prophet = prophet_model.predict(future)
-    prophet_forecast_df = forecast_prophet.set_index("ds")["yhat"]
 
-    if date in prophet_forecast_df.index:
-        prophet_predicted_price = prophet_forecast_df.loc[date]
-        prophet_display_price = f"${prophet_predicted_price:.2f}"
-    else:
-        prophet_display_price = "N/A"
-    
-    # Display Predictions
-    if sarima_display_price != "N/A":
-        st.success(f"SARIMA Predicted Price on {date_input}: {sarima_display_price}")
-    else:
-        st.warning(f"SARIMA Prediction not available for {date_input}.")
+# Prediction endpoint
+@app.post("/predict")
+def predict_price(data: InputData):
 
-    if prophet_display_price != "N/A":
-        st.success(f"Prophet Predicted Price on {date_input}: {prophet_display_price}")
-    else:
-        st.warning(f"Prophet Prediction not available for {date_input}.")
+    # Convert input to dataframe
+    input_df = pd.DataFrame([[data.Open, data.High, data.Low, data.Volume]],
+                            columns=["Open", "High", "Low", "Volume"])
 
-    # Plot predictions
-    st.subheader("Forecast Visualization")
-    fig, ax = plt.subplots()
-    ax.plot(sarima_forecast_df.index, sarima_forecast_df["Forecasted Price"], label="SARIMA Forecast", color="red")
-    ax.plot(prophet_forecast_df.index, prophet_forecast_df, label="Prophet Forecast", color="blue")
-    ax.legend()
-    st.pyplot(fig)
+    # Model prediction
+    prediction = model.predict(input_df)
+
+    return {
+        "Predicted_Aluminium_Price": float(prediction[0])
+    }
